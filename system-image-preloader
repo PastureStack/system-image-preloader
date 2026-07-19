@@ -1,0 +1,381 @@
+#!/usr/bin/env bash
+# Modified by PastureStack contributors for independent maintenance and rebranding.
+
+set -Eeuo pipefail
+
+PROGRAM_NAME="system-image-preloader"
+PROGRAM_VERSION="${SYSTEM_IMAGE_PRELOADER_VERSION:-dev}"
+
+usage() {
+    cat <<'EOF'
+Usage: system-image-preloader [--help] [--version]
+
+Discover system workload images from the legacy-compatible metadata,
+environment API, and catalog API, then pull missing images through the local
+Docker socket.
+
+This command performs network and Docker operations when started without an
+option. Use --help or --version for an offline smoke test.
+EOF
+}
+
+log() {
+    printf '%s\n' "$*"
+}
+
+is_true() {
+    [[ "${1:-}" == "true" ]]
+}
+
+require_command() {
+    local command_name="$1"
+    if ! command -v "${command_name}" >/dev/null 2>&1; then
+        printf 'Required command not found: %s\n' "${command_name}" >&2
+        return 1
+    fi
+}
+
+require_environment() {
+    local variable_name
+    for variable_name in "$@"; do
+        if [[ -z "${!variable_name:-}" ]]; then
+            printf 'Required environment variable is not set: %s\n' "${variable_name}" >&2
+            return 1
+        fi
+    done
+}
+
+validate_positive_integer() {
+    local variable_name="$1"
+    local value="$2"
+
+    if [[ ! "${value}" =~ ^[1-9][0-9]*$ ]]; then
+        printf '%s must be a positive integer, got %q\n' "${variable_name}" "${value}" >&2
+        return 1
+    fi
+}
+
+validate_non_negative_integer() {
+    local variable_name="$1"
+    local value="$2"
+
+    if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+        printf '%s must be a non-negative integer, got %q\n' "${variable_name}" "${value}" >&2
+        return 1
+    fi
+}
+
+docker_cli() {
+    "${DOCKER_BIN:-docker}" "$@"
+}
+
+retry_sleep() {
+    sleep "$1"
+}
+
+image_is_present() {
+    docker_cli image inspect "$1" >/dev/null 2>&1
+}
+
+pull_image_with_retry() {
+    local image="$1"
+    local max_attempts="${IMAGE_PULL_MAX_ATTEMPTS:-5}"
+    local retry_delay="${IMAGE_PULL_RETRY_DELAY_SECONDS:-10}"
+    local attempt
+
+    validate_positive_integer IMAGE_PULL_MAX_ATTEMPTS "${max_attempts}" || return 1
+    validate_non_negative_integer IMAGE_PULL_RETRY_DELAY_SECONDS "${retry_delay}" || return 1
+
+    if image_is_present "${image}"; then
+        log "Image already present: ${image}"
+        return 0
+    fi
+
+    for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+        log "Pulling ${image} (attempt ${attempt}/${max_attempts})"
+        if docker_cli pull "${image}"; then
+            log "Pulled image: ${image}"
+            return 0
+        fi
+
+        if ((attempt == max_attempts)); then
+            printf 'Failed to pull %s after %d attempts\n' "${image}" "${max_attempts}" >&2
+            return 1
+        fi
+
+        log "Pull failed; retrying in ${retry_delay}s"
+        retry_sleep "${retry_delay}"
+    done
+}
+
+resolve_image_reference() {
+    local registry="$1"
+    local image="$2"
+
+    if [[ -z "${registry}" || "${registry}" == "null" ]]; then
+        printf '%s\n' "${image}"
+    else
+        printf '%s/%s\n' "${registry%/}" "${image}"
+    fi
+}
+
+platform_curl() {
+    local tls_options=()
+    if ! is_true "${PLATFORM_TLS_VERIFY:-false}"; then
+        tls_options=(-k)
+    fi
+
+    curl -sS --connect-timeout 10 --max-time 30 --retry 5 --retry-delay 2 \
+        "${tls_options[@]}" \
+        -u "${CATTLE_ACCESS_KEY}:${CATTLE_SECRET_KEY}" \
+        "$@"
+}
+
+metadata_curl() {
+    curl -sS -k --connect-timeout 10 --max-time 30 --retry 5 --retry-delay 2 "$@"
+}
+
+metadata_url() {
+    local path="$1"
+    printf '%s/%s\n' "${METADATA_URL%/}" "${path#/}"
+}
+
+resolve_version_link() {
+    local link="$1"
+    local api_origin
+
+    if [[ "${link}" =~ ^https?:// ]]; then
+        printf '%s\n' "${link}"
+        return 0
+    fi
+
+    api_origin="$(sed -E 's#^(https?://[^/]+).*$#\1#' <<<"${CATTLE_URL}")"
+    if [[ ! "${api_origin}" =~ ^https?:// ]]; then
+        printf 'Cannot resolve relative catalog link from CATTLE_URL: %s\n' \
+            "${CATTLE_URL}" >&2
+        return 1
+    fi
+
+    printf '%s/%s\n' "${api_origin%/}" "${link#/}"
+}
+
+current_cpu_usage() {
+    top -bn2 \
+        | grep 'Cpu(s)' \
+        | sed 's/.*, *\([0-9.]*\)%* id.*/\1/' \
+        | awk '{print 100 - $1}' \
+        | tail -1 \
+        | xargs printf '%1.f\n'
+}
+
+wait_for_cpu_capacity() {
+    local maximum_usage="${CPU_USAGE_MAX:-80}"
+    local sleep_seconds="${CPU_USAGE_SLEEP:-10}"
+    local max_checks="${CPU_WAIT_MAX_ATTEMPTS:-60}"
+    local check
+    local usage
+
+    validate_non_negative_integer CPU_USAGE_MAX "${maximum_usage}" || return 1
+    validate_non_negative_integer CPU_USAGE_SLEEP "${sleep_seconds}" || return 1
+    validate_positive_integer CPU_WAIT_MAX_ATTEMPTS "${max_checks}" || return 1
+
+    for ((check = 1; check <= max_checks; check++)); do
+        usage="$(current_cpu_usage)"
+        if ((usage <= maximum_usage)); then
+            return 0
+        fi
+
+        if ((check == max_checks)); then
+            printf 'CPU usage remained above %s%% after %s checks\n' \
+                "${maximum_usage}" "${max_checks}" >&2
+            return 1
+        fi
+
+        log "CPU usage ${usage}% is above ${maximum_usage}%; retrying in ${sleep_seconds}s"
+        retry_sleep "${sleep_seconds}"
+    done
+}
+
+random_host_delay() {
+    local host_payload
+    local host_count
+    local upper_bound
+    local delay
+
+    if ! is_true "${RANDOM_SLEEP:-false}"; then
+        return 0
+    fi
+
+    host_payload="$(metadata_curl -H 'Accept: application/json' "$(metadata_url hosts)")"
+    host_count="$(jq -er 'length' <<<"${host_payload}")"
+
+    if ((host_count <= 0)); then
+        log 'Skipping random delay because metadata returned no hosts'
+        return 0
+    fi
+
+    upper_bound=$((host_count * 10))
+    delay=$((RANDOM % upper_bound))
+    log "Random host delay: ${delay}s"
+    retry_sleep "${delay}"
+}
+
+derive_api_urls() {
+    if [[ "${CATTLE_URL}" == *'/v1'* ]]; then
+        CATTLE_URL_V2="${CATTLE_URL/\/v1/\/v2-beta}"
+        CATTLE_URL_CATALOG="${CATTLE_URL/\/v1/\/v1-catalog}"
+    else
+        CATTLE_URL_V2="${CATTLE_URL}"
+        CATTLE_URL_CATALOG="${CATTLE_URL/\/v2-beta/\/v1-catalog}"
+    fi
+}
+
+preload_stack_images() {
+    local environment_name="$1"
+    local environment_payload
+    local environment_id
+    local registry_payload
+    local registry
+    local stacks_payload
+    local -a infrastructure_stacks=()
+    local stack
+    local stack_payload
+    local stack_external_id
+    local stack_catalog_path
+    local template_url
+    local template_status
+    local template_payload
+    local version_link
+    local version_payload
+    local compose_content
+    local stack_images
+    local image
+    local target_image
+
+    environment_payload="$(platform_curl --get \
+        --data-urlencode "name=${environment_name}" \
+        "${CATTLE_URL_V2}/projects")"
+    environment_id="$(jq -er '.data[0].id' <<<"${environment_payload}")"
+
+    registry_payload="$(platform_curl "${CATTLE_URL_V2}/settings/registry.default")"
+    registry="$(jq -r '.value // empty' <<<"${registry_payload}")"
+
+    stacks_payload="$(platform_curl --get \
+        --data-urlencode 'system=true' \
+        --data-urlencode "accountId=${environment_id}" \
+        "${CATTLE_URL_V2}/stacks")"
+    mapfile -t infrastructure_stacks < <(jq -r '.data[]?.name // empty' <<<"${stacks_payload}")
+
+    log 'Discovered infrastructure stacks:'
+    printf '  %s\n' "${infrastructure_stacks[@]}"
+
+    for stack in "${infrastructure_stacks[@]}"; do
+        stack_payload="$(platform_curl --get \
+            --data-urlencode 'system=true' \
+            --data-urlencode "accountId=${environment_id}" \
+            --data-urlencode "name=${stack}" \
+            "${CATTLE_URL_V2}/stacks")"
+        stack_external_id="$(jq -er '.data[0].externalId' <<<"${stack_payload}")"
+        stack_catalog_path="$(sed -e 's_catalog://\(.*\):.*$_\1_' <<<"${stack_external_id}")"
+        template_url="${CATTLE_URL_CATALOG}/templates/${stack_catalog_path}"
+
+        template_status="$(platform_curl --get \
+            --data-urlencode "platformVersion=${PLATFORM_VERSION}" \
+            --write-out '%{http_code}' \
+            --output /dev/null \
+            "${template_url}")"
+        if [[ "${template_status}" != "200" ]]; then
+            log "Skipping ${stack}: no catalog reference was returned"
+            continue
+        fi
+
+        template_payload="$(platform_curl --get \
+            --data-urlencode "platformVersion=${PLATFORM_VERSION}" \
+            "${template_url}")"
+        version_link="$(jq -er '.versionLinks[-1]' <<<"${template_payload}")"
+        version_link="$(resolve_version_link "${version_link}")"
+        version_payload="$(platform_curl "${version_link}")"
+
+        if jq -e '.files | has("docker-compose.yml.tpl")' >/dev/null <<<"${version_payload}"; then
+            compose_content="$(jq -er '.files["docker-compose.yml.tpl"]' <<<"${version_payload}")"
+            stack_images="$(gomplate 2>/dev/null <<<"${compose_content}" \
+                | yq -o=json '.' - \
+                | jq -r '.services[]?.image?, .[]?.image? | select(. != null)' \
+                | sort -u)"
+        else
+            compose_content="$(jq -er '.files["docker-compose.yml"]' <<<"${version_payload}")"
+            stack_images="$(yq -o=json '.' - <<<"${compose_content}" \
+                | jq -r '.services[]?.image?, .[]?.image? | select(. != null)' \
+                | sort -u)"
+        fi
+
+        if is_true "${CHECK_CPU_USAGE:-false}"; then
+            wait_for_cpu_capacity
+        fi
+
+        while IFS= read -r image; do
+            [[ -z "${image}" ]] && continue
+            target_image="$(resolve_image_reference "${registry}" "${image}")"
+            pull_image_with_retry "${target_image}"
+            random_host_delay
+        done <<<"${stack_images}"
+    done
+
+    if [[ -n "${PLATFORM_AGENT_IMAGE:-}" ]]; then
+        target_image="$(resolve_image_reference "${registry}" "${PLATFORM_AGENT_IMAGE}")"
+        pull_image_with_retry "${target_image}"
+    fi
+}
+
+main() {
+    case "${1:-}" in
+        -h|--help)
+            usage
+            return 0
+            ;;
+        --version)
+            printf '%s %s\n' "${PROGRAM_NAME}" "${PROGRAM_VERSION}"
+            return 0
+            ;;
+        '')
+            ;;
+        *)
+            printf 'Unknown option: %s\n' "$1" >&2
+            usage >&2
+            return 2
+            ;;
+    esac
+
+    require_environment CATTLE_URL CATTLE_ACCESS_KEY CATTLE_SECRET_KEY PLATFORM_VERSION
+    require_command curl
+    require_command "${DOCKER_BIN:-docker}"
+    require_command gomplate
+    require_command jq
+    require_command top
+    require_command yq
+
+    CATTLE_URL="${CATTLE_URL%/}"
+    METADATA_URL="${METADATA_URL:-http://169.254.169.250/latest}"
+    METADATA_URL="${METADATA_URL%/}"
+    IMAGE_PULL_MAX_ATTEMPTS="${IMAGE_PULL_MAX_ATTEMPTS:-5}"
+    IMAGE_PULL_RETRY_DELAY_SECONDS="${IMAGE_PULL_RETRY_DELAY_SECONDS:-10}"
+
+    if is_true "${PLATFORM_DEBUG:-false}"; then
+        log 'Safe debug status is enabled; credential-bearing shell tracing remains disabled'
+    fi
+
+    derive_api_urls
+    log "Starting ${PROGRAM_NAME} for compatibility platform version ${PLATFORM_VERSION}"
+
+    local environment_name
+    environment_name="$(metadata_curl "$(metadata_url self/stack/environment_name)")"
+    preload_stack_images "${environment_name}"
+
+    log 'Finished'
+}
+
+if is_true "${SYSTEM_IMAGE_PRELOADER_SOURCE_ONLY:-false}"; then
+    return 0 2>/dev/null || exit 0
+fi
+
+main "$@"

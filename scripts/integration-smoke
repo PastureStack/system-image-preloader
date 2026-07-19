@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Created by PastureStack contributors for isolated API-to-Docker validation.
+
+set -Eeuo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+IMAGE="${IMAGE:-local/system-image-preloader:v0.3.0}"
+TEST_PULL_IMAGE="${TEST_PULL_IMAGE:-ghcr.io/pasturestack/container-cron:v0.6.0}"
+PLATFORM_VERSION="${PLATFORM_VERSION:-v1.6.281}"
+ACCESS_KEY="integration-access"
+SECRET_KEY="integration-secret"
+TEST_ROOT="$(mktemp -d)"
+PORT_FILE="${TEST_ROOT}/port"
+MOCK_LOG="${TEST_ROOT}/mock.log"
+RUNTIME_LOG="${TEST_ROOT}/runtime.log"
+CONTAINER_NAME="pasturestack-system-image-preloader-smoke-$$"
+MOCK_PID=''
+IMAGE_WAS_PRESENT=false
+
+cleanup() {
+    status=$?
+    if [[ "${status}" -ne 0 ]]; then
+        [[ ! -s "${RUNTIME_LOG}" ]] || tail -100 "${RUNTIME_LOG}" >&2
+        [[ ! -s "${MOCK_LOG}" ]] || tail -100 "${MOCK_LOG}" >&2
+    fi
+    docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+    if [[ -n "${MOCK_PID}" ]]; then
+        kill "${MOCK_PID}" >/dev/null 2>&1 || true
+        wait "${MOCK_PID}" >/dev/null 2>&1 || true
+    fi
+    if [[ "${IMAGE_WAS_PRESENT}" == "true" ]] \
+        && ! docker image inspect "${TEST_PULL_IMAGE}" >/dev/null 2>&1; then
+        if ! docker pull "${TEST_PULL_IMAGE}" >/dev/null 2>&1; then
+            printf 'WARNING: could not restore pre-existing test image: %s\n' \
+                "${TEST_PULL_IMAGE}" >&2
+        fi
+    elif [[ "${IMAGE_WAS_PRESENT}" == "false" ]]; then
+        docker image rm "${TEST_PULL_IMAGE}" >/dev/null 2>&1 || true
+    fi
+    rm -rf "${TEST_ROOT}"
+    exit "${status}"
+}
+trap cleanup EXIT
+
+if ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then
+    printf 'Integration image is not present: %s\n' "${IMAGE}" >&2
+    exit 1
+fi
+
+if docker ps -a --filter "ancestor=${TEST_PULL_IMAGE}" --format '{{.ID}}' | grep -q .; then
+    printf 'Refusing to remove test image because a container references it: %s\n' \
+        "${TEST_PULL_IMAGE}" >&2
+    exit 1
+fi
+
+if docker image inspect "${TEST_PULL_IMAGE}" >/dev/null 2>&1; then
+    IMAGE_WAS_PRESENT=true
+    docker image rm "${TEST_PULL_IMAGE}" >/dev/null
+fi
+
+python3 "${PROJECT_ROOT}/tests/mock_platform_server.py" \
+    --port-file "${PORT_FILE}" \
+    --target-image "${TEST_PULL_IMAGE}" \
+    --platform-version "${PLATFORM_VERSION}" \
+    --access-key "${ACCESS_KEY}" \
+    --secret-key "${SECRET_KEY}" >"${MOCK_LOG}" 2>&1 &
+MOCK_PID=$!
+
+for _attempt in $(seq 1 100); do
+    [[ -s "${PORT_FILE}" ]] && break
+    if ! kill -0 "${MOCK_PID}" >/dev/null 2>&1; then
+        cat "${MOCK_LOG}" >&2
+        exit 1
+    fi
+    sleep 0.1
+done
+
+if [[ ! -s "${PORT_FILE}" ]]; then
+    printf 'Mock compatibility API did not become ready\n' >&2
+    exit 1
+fi
+
+PORT="$(<"${PORT_FILE}")"
+docker run --name "${CONTAINER_NAME}" \
+    --add-host host.docker.internal:host-gateway \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -e "CATTLE_URL=http://host.docker.internal:${PORT}/v1" \
+    -e "CATTLE_ACCESS_KEY=${ACCESS_KEY}" \
+    -e "CATTLE_SECRET_KEY=${SECRET_KEY}" \
+    -e "METADATA_URL=http://host.docker.internal:${PORT}/latest" \
+    -e "PLATFORM_VERSION=${PLATFORM_VERSION}" \
+    -e IMAGE_PULL_MAX_ATTEMPTS=2 \
+    -e IMAGE_PULL_RETRY_DELAY_SECONDS=0 \
+    "${IMAGE}" >"${RUNTIME_LOG}" 2>&1
+
+docker rm "${CONTAINER_NAME}" >/dev/null
+
+if ! docker image inspect "${TEST_PULL_IMAGE}" >/dev/null 2>&1; then
+    cat "${RUNTIME_LOG}" >&2
+    printf 'Runtime did not cache the requested image: %s\n' "${TEST_PULL_IMAGE}" >&2
+    exit 1
+fi
+
+grep -F "Pulled image: ${TEST_PULL_IMAGE}" "${RUNTIME_LOG}" >/dev/null
+grep -F 'Finished' "${RUNTIME_LOG}" >/dev/null
+
+if grep -Fq "${ACCESS_KEY}" "${RUNTIME_LOG}" || grep -Fq "${SECRET_KEY}" "${RUNTIME_LOG}"; then
+    printf 'Runtime log exposed integration credentials\n' >&2
+    exit 1
+fi
+
+printf 'PASS: compatibility API discovery and real Docker image cache lifecycle\n'
