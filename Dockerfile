@@ -69,6 +69,8 @@ RUN set -eux; \
     git clone --branch "${YQ_VERSION}" --depth 1 https://github.com/mikefarah/yq /src/yq; \
     cd /src/yq; \
     test "$(git rev-parse HEAD)" = "${YQ_GIT_COMMIT}"; \
+    go get golang.org/x/net@v0.60.0 golang.org/x/text@v0.42.0; \
+    go mod tidy; \
     go build -trimpath -buildvcs=false -ldflags "-s -w -X github.com/mikefarah/yq/v4/cmd.GitCommit=${YQ_GIT_COMMIT}" -o /out/yq .; \
     cp LICENSE /out/licenses/yq/LICENSE; \
     /out/yq --version; \
@@ -81,10 +83,10 @@ RUN set -eux; \
     test "$(git rev-parse HEAD)" = "${GOMPLATE_GIT_COMMIT}"; \
     go get \
         github.com/go-git/go-billy/v5@v5.9.0 \
-        github.com/go-git/go-git/v5@v5.19.0 \
+        github.com/go-git/go-git/v5@v5.19.2 \
         golang.org/x/crypto@v0.57.0 \
         golang.org/x/net@v0.60.0 \
-        google.golang.org/grpc@v1.82.1; \
+        google.golang.org/grpc@v1.83.2; \
     go mod tidy; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = v0.60.0; \
     go build -trimpath -buildvcs=false \
@@ -104,7 +106,10 @@ RUN set -eux; \
     test "$(git rev-parse HEAD)" = "${DOCKER_GIT_COMMIT}"; \
     cp vendor.mod go.mod; \
     cp vendor.sum go.sum; \
-    go get golang.org/x/net@v0.60.0; \
+    go get golang.org/x/net@v0.60.0 \
+        github.com/klauspost/compress@v1.18.7 \
+        github.com/moby/go-archive@v0.3.0 \
+        google.golang.org/grpc@v1.83.2; \
     go mod vendor; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = v0.60.0; \
     CGO_ENABLED=0 \
