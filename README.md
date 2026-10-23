@@ -118,4 +118,6 @@ This project is a background service with no user interface or runtime localizat
 
 ## October 2026 security maintenance
 
+The source-built gomplate helper selects `golang.org/x/net v0.60.0` for the October HTTP/2 fixes.
+
 Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.

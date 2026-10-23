@@ -80,7 +80,7 @@ RUN set -eux; \
         github.com/go-git/go-billy/v5@v5.9.0 \
         github.com/go-git/go-git/v5@v5.19.0 \
         golang.org/x/crypto@v0.52.0 \
-        golang.org/x/net@v0.55.0 \
+        golang.org/x/net@v0.60.0 \
         google.golang.org/grpc@v1.82.1; \
     go mod tidy; \
     go build -trimpath -buildvcs=false \
