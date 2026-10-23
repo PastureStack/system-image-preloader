@@ -79,15 +79,17 @@ RUN set -eux; \
     go get \
         github.com/go-git/go-billy/v5@v5.9.0 \
         github.com/go-git/go-git/v5@v5.19.0 \
-        golang.org/x/crypto@v0.52.0 \
+        golang.org/x/crypto@v0.57.0 \
         golang.org/x/net@v0.60.0 \
         google.golang.org/grpc@v1.82.1; \
     go mod tidy; \
+    test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = v0.60.0; \
     go build -trimpath -buildvcs=false \
         -ldflags "-s -w -X github.com/hairyhenderson/gomplate/v5/version.Version=${GOMPLATE_VERSION} -X github.com/hairyhenderson/gomplate/v5/version.GitCommit=${GOMPLATE_GIT_COMMIT}" \
         -o /out/gomplate ./cmd/gomplate; \
     cp LICENSE /out/licenses/gomplate/LICENSE; \
     /out/gomplate --version; \
+    go version -m /out/gomplate | grep -F 'golang.org/x/net'; \
     rm -rf /src/gomplate /tmp/go-build-cache /tmp/go-mod-cache
 
 RUN set -eux; \
@@ -97,6 +99,11 @@ RUN set -eux; \
         https://github.com/docker/cli /go/src/github.com/docker/cli; \
     cd /go/src/github.com/docker/cli; \
     test "$(git rev-parse HEAD)" = "${DOCKER_GIT_COMMIT}"; \
+    cp vendor.mod go.mod; \
+    cp vendor.sum go.sum; \
+    go get golang.org/x/net@v0.60.0; \
+    go mod vendor; \
+    test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = v0.60.0; \
     CGO_ENABLED=0 \
         GOPATH=/go \
         GO_STRIP=1 \
