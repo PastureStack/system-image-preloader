@@ -12,7 +12,7 @@ This repository is a derivative maintenance project. It preserves the upstream G
 
 ## Reviewed release
 
-The `v0.3.0` release provides:
+The `v0.3.1` release provides:
 
 - a self-contained public build based on a digest-pinned Ubuntu image;
 - the `system-image-preloader` executable and image name;
@@ -72,7 +72,7 @@ restores the image-presence state. It never performs a broad image prune.
 Use the immutable semantic tag:
 
 ```text
-ghcr.io/pasturestack/system-image-preloader:v0.3.0
+ghcr.io/pasturestack/system-image-preloader:v0.3.1
 ```
 
 The deployment definition must mount `/var/run/docker.sock`, run one instance
@@ -115,3 +115,9 @@ The repository remains under its existing Apache License 2.0 file. The runtime i
 ## Localization
 
 This project is a background service with no user interface or runtime localization subsystem. It therefore does not add locale files. User-facing dashboards that manage this service must provide Traditional Chinese through their own locale framework.
+
+## October 2026 security maintenance
+
+The source-built yq, gomplate, and Docker CLI helpers select `golang.org/x/net v0.60.0` for the October HTTP/2 fixes. Their scanned runtime module graph also pins official security fixes: x/text 0.42.0, go-git 5.19.2, grpc-go 1.83.2, klauspost/compress 1.18.7, and moby/go-archive 0.3.0. Upstream helper feature versions stay unchanged; CI exercises the rebuilt helpers and scans the actual final runtime.
+
+Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
