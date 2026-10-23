@@ -13,10 +13,11 @@ def manifest(oci=False, evil=False):
 schema = manifest()
 index = raw({"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.list.v2+json","manifests":[{"mediaType":"application/vnd.docker.distribution.manifest.v2+json","size":len(schema),"digest":digest(schema),"platform":{"os":"linux","architecture":"amd64"}}]})
 state = {}
+requests_seen = []
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def do_GET(self):
-        state["requests"].append(self.path)
+        requests_seen.append(self.path)
         if self.path == "/v2/": data, media = b"{}", "application/json"
         elif "/manifests/" in self.path:
             requested = self.path.rsplit("/", 1)[1]
@@ -57,12 +58,13 @@ cases = [("valid_schema2",schema,schema,None,True),
 results = []
 try:
     for name, expected, body, child, accepted in cases:
-        state.clear(); state.update(requested=digest(expected),body=body,child=child or schema,requests=[])
+        state.clear(); state.update(requested=digest(expected),body=body,child=child or schema)
+        requests_seen.clear()
         result = subprocess.run([BINARY,"manifest","inspect","--insecure",f"127.0.0.1:{server.server_port}/library/test@{digest(expected)}"],capture_output=True,text=True,timeout=30,env=environment)
-        passed = (result.returncode == 0) if accepted else (result.returncode != 0 and not result.stdout.strip() and not any("/blobs/" in p for p in state["requests"]) and ("manifest verification failed" in result.stderr or "unsupported manifest format" in result.stderr))
+        passed = (result.returncode == 0) if accepted else (result.returncode != 0 and not result.stdout.strip() and not any("/blobs/" in p for p in requests_seen) and ("manifest verification failed" in result.stderr or "unsupported manifest format" in result.stderr))
         results.append({"case":name,"passed":passed,"accepted":result.returncode==0,"expectedAccept":accepted,
                         "returnCode":result.returncode,"stderr":result.stderr.strip(),
-                        "requestPaths":list(state["requests"])})
+                        "requestPaths":list(requests_seen)})
         if not passed: raise AssertionError(results[-1])
 finally:
     server.shutdown()
