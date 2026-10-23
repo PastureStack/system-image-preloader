@@ -35,14 +35,28 @@ jobs:
           set -euo pipefail
           test "$(go env GOVERSION)" = go1.27.3
           make validate test
+          python3 -B scripts/test-runtime-vulnerability-policy.py -v
+          python3 -B tests/test_runtime_security_review.py -v
           make build smoke integration
       - name: Retain the exact verified runtime
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist/security-runtime
-          docker image inspect local/system-image-preloader:v0.3.1 > dist/security-runtime/images.json
-          docker save local/system-image-preloader:v0.3.1 | gzip -n > dist/security-runtime/images.tar.gz
+          docker image inspect local/system-image-preloader:v0.3.2 > dist/security-runtime/images.json
+          container=$(docker create --entrypoint /bin/true local/system-image-preloader:v0.3.2)
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          docker cp "$container:/licenses/third-party/security/." dist/security-runtime/
+          docker cp "$container:/usr/local/bin/docker" dist/security-runtime/docker-cli
+          docker run --rm --network none --entrypoint sha256sum \
+            local/system-image-preloader:v0.3.2 /usr/local/bin/docker \
+            > dist/security-runtime/docker-sha256.txt
+          python3 -B tests/docker_manifest_digest_proof.py \
+            > dist/security-runtime/docker-manifest-digest-proof.json
+          rm dist/security-runtime/docker-cli
+          docker rm "$container" >/dev/null
+          trap - EXIT
+          docker save local/system-image-preloader:v0.3.2 | gzip -n > dist/security-runtime/images.tar.gz
           printf '%s\n' "$GITHUB_SHA" > dist/security-runtime/source-revision.txt
           (cd dist/security-runtime && sha256sum images.json images.tar.gz source-revision.txt > SHA256SUMS)
       - name: Scan the exact runtime and generate its SBOM
@@ -51,13 +65,15 @@ jobs:
           set -euo pipefail
           scanner=aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
           docker pull "$scanner"
-          for runtime in local/system-image-preloader:v0.3.1; do
+          for runtime in local/system-image-preloader:v0.3.2; do
             name=${runtime##*/}; name=${name%%:*}
             docker save "$runtime" --output "$RUNNER_TEMP/$name.tar"
-            docker run --rm -v "$RUNNER_TEMP/$name.tar:/image.tar:ro" -v "$PWD/dist/security-runtime:/evidence" "$scanner" image --input /image.tar --scanners vuln,secret --severity HIGH,CRITICAL --exit-code 1 --format json --output "/evidence/$name-security.json"
+            docker run --rm -v "$RUNNER_TEMP/$name.tar:/image.tar:ro" -v "$PWD/dist/security-runtime:/evidence" "$scanner" image --input /image.tar --scanners vuln,secret --list-all-pkgs --format json --output "/evidence/$name-security.json"
             docker run --rm -v "$RUNNER_TEMP/$name.tar:/image.tar:ro" -v "$PWD/dist/security-runtime:/evidence" "$scanner" image --input /image.tar --format cyclonedx --output "/evidence/$name-sbom.cdx.json"
           done
-          (cd dist/security-runtime && sha256sum -- *.json images.tar.gz source-revision.txt > SHA256SUMS)
+          python3 -B scripts/review-runtime-security.py
+          python3 -B scripts/enforce-runtime-vulnerabilities.py --phase runtime
+          (cd dist/security-runtime && sha256sum -- *.json *.txt images.tar.gz > SHA256SUMS)
       - name: Upload verified runtime and checksums
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -78,7 +94,7 @@ jobs:
       packages: write
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: v0.3.1
+      RELEASE_TAG: v0.3.2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,7 +113,7 @@ jobs:
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
           : > dist/security-runtime/registry-images.jsonl
-          local_image='local/system-image-preloader:v0.3.1'
+          local_image='local/system-image-preloader:v0.3.2'
           remote_image="ghcr.io/pasturestack/system-image-preloader:$RELEASE_TAG"
           if docker manifest inspect "$remote_image" >/dev/null 2>"$RUNNER_TEMP/manifest-error"; then
             echo "Refusing to replace an existing immutable image tag: $remote_image" >&2; exit 1

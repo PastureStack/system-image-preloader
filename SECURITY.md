@@ -2,7 +2,7 @@
 
 ## Project status
 
-PastureStack System Image Preloader is an independent compatibility maintenance project. Release `v0.3.0` has completed offline policy tests, container smoke tests, an isolated compatibility API-to-Docker cache lifecycle test, and a HIGH/CRITICAL container vulnerability gate.
+PastureStack System Image Preloader is an independent compatibility maintenance project. Release candidates require offline policy tests, container smoke tests, an isolated compatibility API-to-Docker cache lifecycle test, and a full-severity container vulnerability gate. Every available fix, unreviewed Low/Medium finding, High/Critical/Unknown finding, or secret blocks publication. Exact official branch-specific no-fix evidence may admit Low/Medium findings; a narrowly scoped OpenPGP decision additionally requires proof that the affected packages are absent from the built gomplate dependency graph. Raw scans are always retained.
 
 ## Reporting a vulnerability
 
