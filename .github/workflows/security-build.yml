@@ -47,6 +47,13 @@ jobs:
           container=$(docker create --entrypoint /bin/true local/system-image-preloader:v0.3.2)
           trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
           docker cp "$container:/licenses/third-party/security/." dist/security-runtime/
+          docker cp "$container:/usr/local/bin/docker" dist/security-runtime/docker-cli
+          docker run --rm --network none --entrypoint sha256sum \
+            local/system-image-preloader:v0.3.2 /usr/local/bin/docker \
+            > dist/security-runtime/docker-sha256.txt
+          python3 -B tests/docker_manifest_digest_proof.py \
+            > dist/security-runtime/docker-manifest-digest-proof.json
+          rm dist/security-runtime/docker-cli
           docker rm "$container" >/dev/null
           trap - EXIT
           docker save local/system-image-preloader:v0.3.2 | gzip -n > dist/security-runtime/images.tar.gz

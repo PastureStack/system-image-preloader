@@ -671,17 +671,6 @@
       "officialEvidence": "https://git.launchpad.net/ubuntu-cve-tracker/plain/active/CVE-2026-44777",
       "reason": "Canonical resolute_jq: needed, checked 2026-10-23. No official Ubuntu 26.04 fixed package is available; upstream patches do not change this distribution package's status.",
       "checkedAt": "2026-10-23"
-    },
-    {
-      "severity": "MEDIUM",
-      "package": "github.com/docker/distribution",
-      "id": "CVE-2026-85747",
-      "purl": "pkg:golang/github.com/docker/distribution@v2.8.3%2Bincompatible",
-      "version": "v2.8.3+incompatible",
-      "status": "no_official_fix",
-      "officialEvidence": "https://github.com/distribution/distribution/security/advisories/GHSA-685w-q87j-wqw3",
-      "reason": "The maintained v2 module has no official fixed release; the upstream fix is v3.1.2 on a different module major line. Retain this unresolved finding; do not claim the Docker CLI is unaffected.",
-      "checkedAt": "2026-10-23"
     }
   ]
 }

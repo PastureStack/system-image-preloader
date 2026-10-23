@@ -122,10 +122,16 @@ The source-built yq, gomplate, and Docker CLI helpers select `golang.org/x/net v
 
 Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
 
-The 0.3.2 rebuild pins the affected OpenTelemetry SDK/OTLP modules to official
-1.45.0 releases (CVE-2026-81870) without changing Docker CLI 29.4.2 or gomplate
-5.1.0 features. Every scan severity is retained. Any available fix or unreviewed
+The 0.3.2 rebuild pins gomplate's affected OpenTelemetry SDK to official 1.45.0
+(CVE-2026-81870) and adopts the checksum-pinned official Docker CLI 29.9.2,
+within the existing 29.x series. The daemon and gomplate 5.1.0 are unchanged.
+Every scan severity is retained. Any available fix or unreviewed
 finding blocks publication; Low/Medium vendor-unfixed entries require an exact
 package/version/PURL and official branch-specific no-fix evidence. The only
 OpenPGP non-applicability decision requires the exact built gomplate package
 graph to exclude all deprecated OpenPGP packages; raw findings remain retained.
+Docker's distribution finding is scoped to the exact official CLI bytes: its
+existing manifest-digest validation was independently tested with valid and
+forged schema2, OCI, and manifest-list responses. This is a CLI mitigation, not
+a claim that the underlying distribution package is fixed. Missing Go module
+metadata in the official binary does not imply that dependencies are absent.

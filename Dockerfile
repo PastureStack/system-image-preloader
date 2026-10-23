@@ -10,9 +10,10 @@ ARG YQ_VERSION=v4.53.3
 ARG YQ_GIT_COMMIT=1b9b4ac5187171d2e5e3129be0cfa827c7f9d53d
 ARG GOMPLATE_VERSION=v5.1.0
 ARG GOMPLATE_GIT_COMMIT=0f4c15bc8521939478426bf6ffca4718837b9cb4
-ARG DOCKER_VERSION=29.4.2
-ARG DOCKER_GIT_COMMIT=055a478ea9010a19d0d4674c0d0e87ade37a4223
-ARG DOCKER_SOURCE_DATE_EPOCH=1776697064
+ARG DOCKER_VERSION=29.9.2
+ARG DOCKER_GIT_COMMIT=a82e528901260c8df6073311379eac65f92db204
+ARG DOCKER_ARCHIVE_SHA256=9ac225999fd5e863f7694c728ef23d480616b1e5639328fa309befd4243d69eb
+ARG DOCKER_BINARY_SHA256=6c71cfe71faff949a602946a4df4799b563232e79d0b8b6fd343d0ef081c9621
 ARG UBUNTU_SNAPSHOT=20260825T000000Z
 
 ADD --checksum=sha256:5b6326f1932cfd7be57130561dc78192f09ed9f58bfbe6606ed0c50510c3b6cd \
@@ -105,38 +106,17 @@ RUN set -eux; \
 
 RUN set -eux; \
     mkdir -p /out/licenses/docker-cli; \
-    mkdir -p /go/src/github.com/docker; \
-    git clone --branch "v${DOCKER_VERSION}" --depth 1 \
-        https://github.com/docker/cli /go/src/github.com/docker/cli; \
-    cd /go/src/github.com/docker/cli; \
-    test "$(git rev-parse HEAD)" = "${DOCKER_GIT_COMMIT}"; \
-    cp vendor.mod go.mod; \
-    cp vendor.sum go.sum; \
-    go get golang.org/x/net@v0.60.0 \
-        github.com/klauspost/compress@v1.18.7 \
-        github.com/moby/go-archive@v0.3.0 \
-        go.opentelemetry.io/otel/sdk@v1.45.0 \
-        go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.45.0 \
-        go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.45.0 \
-        google.golang.org/grpc@v1.83.2; \
-    go mod vendor; \
-    test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = v0.60.0; \
-    for module in go.opentelemetry.io/otel/sdk go.opentelemetry.io/otel/exporters/otlp/otlptrace go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc; do \
-        test "$(go list -m -f '{{.Version}}' "$module")" = v1.45.0; \
-    done; \
-    CGO_ENABLED=0 \
-        GOPATH=/go \
-        GO_STRIP=1 \
-        GITCOMMIT="${DOCKER_GIT_COMMIT}" \
-        SOURCE_DATE_EPOCH="${DOCKER_SOURCE_DATE_EPOCH}" \
-        TARGET=/out \
-        VERSION="${DOCKER_VERSION}" \
-        ./scripts/build/binary; \
-    test -x /out/docker; \
-    cp LICENSE NOTICE /out/licenses/docker-cli/; \
+    git clone --branch "v${DOCKER_VERSION}" --depth 1 https://github.com/docker/cli /src/docker-cli; \
+    test "$(git -C /src/docker-cli rev-parse HEAD)" = "${DOCKER_GIT_COMMIT}"; \
+    cp /src/docker-cli/LICENSE /src/docker-cli/NOTICE /out/licenses/docker-cli/; \
+    curl -fsSL --retry 5 --retry-all-errors --connect-timeout 10 --max-time 300 \
+        -o /tmp/docker.tgz "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz"; \
+    echo "${DOCKER_ARCHIVE_SHA256}  /tmp/docker.tgz" | sha256sum -c -; \
+    tar -xOf /tmp/docker.tgz docker/docker > /out/docker; \
+    echo "${DOCKER_BINARY_SHA256}  /out/docker" | sha256sum -c -; \
+    chmod +x /out/docker; \
     /out/docker --version; \
-    go version -m /out/docker > /out/licenses/security/docker-buildinfo.txt; \
-    rm -rf /go/src/github.com/docker/cli /tmp/go-build-cache /tmp/go-mod-cache
+    rm -rf /src/docker-cli /tmp/docker.tgz
 
 FROM ${UBUNTU_IMAGE}
 
