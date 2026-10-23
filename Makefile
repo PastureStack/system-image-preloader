@@ -1,6 +1,6 @@
 # Created by PastureStack contributors for repeatable validation.
 
-VERSION ?= v0.3.0
+VERSION ?= v0.3.1
 REVISION ?= $(shell git rev-parse HEAD)
 IMAGE_REPOSITORY ?= local/system-image-preloader
 IMAGE ?= $(IMAGE_REPOSITORY):$(VERSION)

@@ -23,7 +23,7 @@ The container build includes separately maintained tools:
 - `yq` `v4.53.3`, built from its verified upstream commit; and
 - `gomplate` `v5.1.0`, built from its verified upstream commit.
 
-The source-built Go tools use Go `1.27.0`. The `gomplate` build updates
+The source-built Go tools use Go `1.27.3`. The `gomplate` build updates
 dependencies with published security fixes while retaining the verified
 `v5.1.0` application source.
 
