@@ -22,13 +22,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             requested = self.path.rsplit("/", 1)[1]
             data = state["body"] if requested == state["requested"] else state.get("child", schema)
             media = json.loads(data)["mediaType"]
+            # Forge the expected digest using fixture-owned values, never request
+            # bytes. The proof tests the CLI's content validation, not a registry
+            # header parser, and must not make the local server header-injectable.
+            advertised_digest = state["requested"] if requested == state["requested"] else digest(schema)
         elif "/blobs/" in self.path: data, media = config, "application/octet-stream"
         else: self.send_error(404); return
         self.send_response(200)
         self.send_header("Content-Type", media)
         self.send_header("Content-Length", str(len(data)))
         if "/manifests/" in self.path:
-            self.send_header("Docker-Content-Digest", self.path.rsplit("/",1)[1])
+            self.send_header("Docker-Content-Digest", advertised_digest)
         self.end_headers(); self.wfile.write(data)
 fixture = tempfile.TemporaryDirectory(prefix="docker-manifest-proof-")
 config_dir = Path(fixture.name) / "docker-config"
