@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="${IMAGE:-local/system-image-preloader:v0.3.1}"
+IMAGE="${IMAGE:-local/system-image-preloader:v0.3.2}"
 TEST_PULL_IMAGE="${TEST_PULL_IMAGE:-ghcr.io/pasturestack/container-cron:v0.6.0}"
 PLATFORM_VERSION="${PLATFORM_VERSION:-v1.6.281}"
 ACCESS_KEY="integration-access"

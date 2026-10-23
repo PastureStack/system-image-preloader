@@ -12,7 +12,7 @@ This repository is a derivative maintenance project. It preserves the upstream G
 
 ## Reviewed release
 
-The `v0.3.1` release provides:
+The `v0.3.2` release provides:
 
 - a self-contained public build based on a digest-pinned Ubuntu image;
 - the `system-image-preloader` executable and image name;
@@ -72,7 +72,7 @@ restores the image-presence state. It never performs a broad image prune.
 Use the immutable semantic tag:
 
 ```text
-ghcr.io/pasturestack/system-image-preloader:v0.3.1
+ghcr.io/pasturestack/system-image-preloader:v0.3.2
 ```
 
 The deployment definition must mount `/var/run/docker.sock`, run one instance
@@ -121,3 +121,11 @@ This project is a background service with no user interface or runtime localizat
 The source-built yq, gomplate, and Docker CLI helpers select `golang.org/x/net v0.60.0` for the October HTTP/2 fixes. Their scanned runtime module graph also pins official security fixes: x/text 0.42.0, go-git 5.19.2, grpc-go 1.83.2, klauspost/compress 1.18.7, and moby/go-archive 0.3.0. Upstream helper feature versions stay unchanged; CI exercises the rebuilt helpers and scans the actual final runtime.
 
 Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
+
+The 0.3.2 rebuild pins the affected OpenTelemetry SDK/OTLP modules to official
+1.45.0 releases (CVE-2026-81870) without changing Docker CLI 29.4.2 or gomplate
+5.1.0 features. Every scan severity is retained. Any available fix or unreviewed
+finding blocks publication; Low/Medium vendor-unfixed entries require an exact
+package/version/PURL and official branch-specific no-fix evidence. The only
+OpenPGP non-applicability decision requires the exact built gomplate package
+graph to exclude all deprecated OpenPGP packages; raw findings remain retained.

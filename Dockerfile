@@ -86,15 +86,21 @@ RUN set -eux; \
         github.com/go-git/go-git/v5@v5.19.2 \
         golang.org/x/crypto@v0.57.0 \
         golang.org/x/net@v0.60.0 \
+        go.opentelemetry.io/otel/sdk@v1.45.0 \
         google.golang.org/grpc@v1.83.2; \
     go mod tidy; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = v0.60.0; \
+    test "$(go list -m -f '{{.Version}}' go.opentelemetry.io/otel/sdk)" = v1.45.0; \
+    mkdir -p /out/licenses/security; \
+    go list -deps -f '{{.ImportPath}}' ./cmd/gomplate > /out/licenses/security/gomplate-dependencies.txt; \
+    ! grep -Eq '^golang.org/x/crypto/openpgp(/|$)' /out/licenses/security/gomplate-dependencies.txt; \
     go build -trimpath -buildvcs=false \
         -ldflags "-s -w -X github.com/hairyhenderson/gomplate/v5/version.Version=${GOMPLATE_VERSION} -X github.com/hairyhenderson/gomplate/v5/version.GitCommit=${GOMPLATE_GIT_COMMIT}" \
         -o /out/gomplate ./cmd/gomplate; \
     cp LICENSE /out/licenses/gomplate/LICENSE; \
     /out/gomplate --version; \
     go version -m /out/gomplate | grep -F 'golang.org/x/net'; \
+    go version -m /out/gomplate > /out/licenses/security/gomplate-buildinfo.txt; \
     rm -rf /src/gomplate /tmp/go-build-cache /tmp/go-mod-cache
 
 RUN set -eux; \
@@ -109,9 +115,15 @@ RUN set -eux; \
     go get golang.org/x/net@v0.60.0 \
         github.com/klauspost/compress@v1.18.7 \
         github.com/moby/go-archive@v0.3.0 \
+        go.opentelemetry.io/otel/sdk@v1.45.0 \
+        go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.45.0 \
+        go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.45.0 \
         google.golang.org/grpc@v1.83.2; \
     go mod vendor; \
     test "$(go list -m -f '{{.Version}}' golang.org/x/net)" = v0.60.0; \
+    for module in go.opentelemetry.io/otel/sdk go.opentelemetry.io/otel/exporters/otlp/otlptrace go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc; do \
+        test "$(go list -m -f '{{.Version}}' "$module")" = v1.45.0; \
+    done; \
     CGO_ENABLED=0 \
         GOPATH=/go \
         GO_STRIP=1 \
@@ -123,6 +135,7 @@ RUN set -eux; \
     test -x /out/docker; \
     cp LICENSE NOTICE /out/licenses/docker-cli/; \
     /out/docker --version; \
+    go version -m /out/docker > /out/licenses/security/docker-buildinfo.txt; \
     rm -rf /go/src/github.com/docker/cli /tmp/go-build-cache /tmp/go-mod-cache
 
 FROM ${UBUNTU_IMAGE}
