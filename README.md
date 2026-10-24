@@ -1,8 +1,8 @@
 # PastureStack System Image Preloader
 
-Linux candidate **`v0.3.3`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider. It is unpublished; the last published Linux release is [v0.3.2](https://github.com/PastureStack/system-image-preloader/releases/tag/v0.3.2).
+Linux runtime **`v0.3.3`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
 
-Build and image examples below target the candidate. Publication requires completed bundle provenance and the normal final-image release gates. The image retains bundle manifests, source inputs and install/verify receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
+The image retains bundle manifests, source inputs and installation receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
 
 PastureStack System Image Preloader discovers the images required by legacy-compatible system workloads and asks the local Docker daemon to pull images that are not already present.
 
@@ -74,7 +74,7 @@ restores the image-presence state. It never performs a broad image prune.
 
 ## Deployment
 
-After publication and integration, use the immutable semantic tag:
+Use the immutable semantic tag:
 
 ```text
 ghcr.io/pasturestack/system-image-preloader:v0.3.3
