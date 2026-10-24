@@ -98,7 +98,7 @@ def review(report, dependencies, gomplate_info, docker_sha256, image_id):
 
 
 def main():
-    report = json.loads((EVIDENCE / 'system-image-preloader-security.json').read_text())
+    report = json.loads((EVIDENCE / 'system-image-preloader-security-backports.json').read_text())
     images = json.loads((EVIDENCE / 'images.json').read_text())
     if len(images) != 1 or report.get('Metadata', {}).get('ImageID') != images[0]['Id']:
         raise ValueError('scan does not identify the exact built image')

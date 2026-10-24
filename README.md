@@ -1,5 +1,9 @@
 # PastureStack System Image Preloader
 
+Linux runtime **`v0.3.3`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
+
+The image retains bundle manifests, source inputs and installation receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
+
 PastureStack System Image Preloader discovers the images required by legacy-compatible system workloads and asks the local Docker daemon to pull images that are not already present.
 
 The runtime is a Bash executable rather than a Go module. Its public package identity is the repository, executable, container image, and OCI metadata name `system-image-preloader`.
@@ -10,9 +14,9 @@ PastureStack is an independent community effort to preserve, audit, and moderniz
 
 This repository is a derivative maintenance project. It preserves the upstream Git history, authorship, and Apache License 2.0 terms. See [ORIGIN.md](ORIGIN.md) for source attribution and [COMPATIBILITY.md](COMPATIBILITY.md) for the legacy contracts that intentionally retain upstream identifiers.
 
-## Reviewed release
+## Runtime and build contract
 
-The `v0.3.2` release provides:
+The maintained recipe provides:
 
 - a self-contained public build based on a digest-pinned Ubuntu image;
 - the `system-image-preloader` executable and image name;
@@ -73,7 +77,7 @@ restores the image-presence state. It never performs a broad image prune.
 Use the immutable semantic tag:
 
 ```text
-ghcr.io/pasturestack/system-image-preloader:v0.3.2
+ghcr.io/pasturestack/system-image-preloader:v0.3.3
 ```
 
 The deployment definition must mount `/var/run/docker.sock`, run one instance
@@ -117,13 +121,13 @@ The repository remains under its existing Apache License 2.0 file. The runtime i
 
 This project is a background service with no user interface or runtime localization subsystem. It therefore does not add locale files. User-facing dashboards that manage this service must provide Traditional Chinese through their own locale framework.
 
-## October 2026 security maintenance
+## Security inputs
 
 Source-built yq and gomplate select `golang.org/x/net v0.60.0` for the October HTTP/2 fixes, with x/text 0.42.0, go-git 5.19.2 and grpc-go 1.83.2 where applicable. Their upstream feature versions stay unchanged. The official Docker CLI 29.9.2 is pinned by archive and executable SHA-256 and carries the vendor's patched Go 1.26.10 compiler; its exact source is commit `a82e528901260c8df6073311379eac65f92db204`. CI exercises these exact helpers and scans the actual final runtime.
 
 Maintained Go builds select the patched Go 1.27.3 compiler without raising the existing Go language requirement. Ubuntu build/runtime stages apply the checksum-pinned `ca-certificates 20260816ubuntu0.26.04.1` security package after their frozen APT baseline; the final trust store and installed version are verified. Release artifacts must pass the repository's existing checks before publication.
 
-The 0.3.2 rebuild pins gomplate's affected OpenTelemetry SDK to official 1.45.0
+Gomplate selects official OpenTelemetry SDK 1.45.0
 (CVE-2026-81870) and adopts the checksum-pinned official Docker CLI 29.9.2,
 within the existing 29.x series. The daemon and gomplate 5.1.0 are unchanged.
 Every scan severity is retained. Any available fix or unreviewed
