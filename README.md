@@ -1,6 +1,8 @@
 # PastureStack System Image Preloader
 
-Linux runtime **`v0.3.3`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
+Linux runtime **`v0.3.4`** integrates shared Ubuntu 26.04 security backports for already-installed packages while preserving the selected coreutils provider.
+
+The shared bundle includes the official Brotli decoder fix for CVE-2026-111497.
 
 The image retains bundle manifests, source inputs and installation receipts under `/usr/share/pasturestack/security/ubuntu-backports/`.
 
@@ -77,7 +79,7 @@ restores the image-presence state. It never performs a broad image prune.
 Use the immutable semantic tag:
 
 ```text
-ghcr.io/pasturestack/system-image-preloader:v0.3.3
+ghcr.io/pasturestack/system-image-preloader:v0.3.4
 ```
 
 The deployment definition must mount `/var/run/docker.sock`, run one instance
